@@ -1,0 +1,101 @@
+# Dependencies
+
+node_modules/
+
+# Build output
+
+dist/
+build/
+
+# Logs
+
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Environment variables
+
+.env
+.env.*
+!.env.example
+
+# Coverage
+
+coverage/
+.nyc_output/
+
+# Runtime data
+
+pids/
+*.pid
+*.seed
+*.pid.lock
+
+# Cache
+
+.cache/
+.nestjs-cache/
+.eslintcache
+
+# TypeScript
+
+*.tsbuildinfo
+
+# IDEs and Editors
+
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+
+.DS_Store
+Thumbs.db
+
+# Testing
+
+jest-cache/
+test-results/
+
+# Uploads and temporary files
+
+uploads/
+tmp/
+temp/
+output/
+
+# Docker
+
+docker-data/
+
+# Prisma
+
+prisma/dev.db
+prisma/dev.db-journal
+
+# SQLite
+
+*.sqlite
+*.sqlite3
+*.db
+
+# PM2
+
+.pm2/
+
+# Generated files
+
+generated/
+*.generated.*
+
+# Package manager locks (اختياري)
+
+# package-lock.json
+
+# yarn.lock
+
+# pnpm-lock.yaml
