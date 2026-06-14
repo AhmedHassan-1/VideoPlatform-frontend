@@ -1,6 +1,6 @@
 // src/pages/auth/LoginPage.tsx  — Redesigned with Bootstrap + SweetAlert2
 import React, { useState, useEffect } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../../stores/auth.store';
 import { authApi } from '../../services/api';
 
@@ -156,13 +156,8 @@ export default function LoginPage() {
 
           <hr className="divider" style={{ margin: '20px 0' }} />
 
-          <div style={{ display:'flex', justifyContent:'space-between', fontSize:13 }}>
-            <Link to="/forgot-password" style={{ color:'var(--accent)', textDecoration:'none', fontWeight:600 }}>
-              <i className="bi bi-question-circle me-1"></i>Forgot password?
-            </Link>
-            <Link to="/register" style={{ color:'var(--accent-2)', textDecoration:'none', fontWeight:600 }}>
-              Create account <i className="bi bi-arrow-right"></i>
-            </Link>
+          <div style={{ textAlign:'center', fontSize:12, color:'var(--text-muted)' }}>
+            Contact your administrator if you need access.
           </div>
         </div>
       </div>

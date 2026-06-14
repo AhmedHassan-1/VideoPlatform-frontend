@@ -77,7 +77,7 @@ export default function DashboardPage() {
       </div>
 
       {/* Stats grid */}
-      <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:14, marginBottom:24 }}>
+      <div className="stats-grid" style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:14, marginBottom:24 }}>
         <StatCard val={vids.length} label="Total Videos"  icon="collection-play"      delay={1} />
         <StatCard val={ready}       label="Ready"          icon="check-circle-fill"    color="#00e5b0" delay={2} />
         <StatCard val={inQ}         label="In Queue"       icon="hourglass-split"      color={inQ>0?'#ffb800':'#00e5b0'} delay={3} />

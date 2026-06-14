@@ -1,7 +1,6 @@
-// src/hooks/useUpload.ts
+// src/hooks/useUpload.ts — Updated: qualities param, no toast (use Swal in page)
 import { useState, useCallback, useRef } from 'react';
 import { uploadApi } from '../services/api';
-import toast from 'react-hot-toast';
 
 const CHUNK_SIZE = 5 * 1024 * 1024; // 5MB
 
@@ -9,9 +8,7 @@ interface UploadOptions {
   file: File;
   title: string;
   poster?: File | null;
-  qualities?: string[] | null;
-  segmentDuration?: number;
-  keyRotationInterval?: number;
+  qualities?: string[] | null;  // null = auto (server decides)
   onProgress?: (percent: number) => void;
 }
 
@@ -36,28 +33,28 @@ export function useUpload() {
     setState({ uploading: true, progress: 0, phase: 'init', error: null, uploadId: null, videoId: null });
 
     try {
-      // 1. Init
-      const ext = opts.file.name.split('.').pop() || 'mp4';
+      // 1. Init upload session
       const initRes = await uploadApi.init({
-        filename: opts.file.name,
+        filename:  opts.file.name,
         totalSize: opts.file.size,
-        title: opts.title,
-        qualities: opts.qualities ?? undefined,
-        segmentDuration: opts.segmentDuration,
-        keyRotationInterval: opts.keyRotationInterval,
+        title:     opts.title,
+        qualities: opts.qualities ?? null,
       });
       const { uploadId, chunkSize, totalChunks } = initRes.data;
       setState(s => ({ ...s, phase: 'chunks', uploadId }));
 
       // 2. Upload chunks
-      for (let i = 0; i < totalChunks; i++) {
+      const effectiveChunkSize = chunkSize || CHUNK_SIZE;
+      const effectiveTotalChunks = totalChunks || Math.ceil(opts.file.size / effectiveChunkSize);
+
+      for (let i = 0; i < effectiveTotalChunks; i++) {
         if (abortRef.current) throw new Error('Upload cancelled');
-        const start  = i * chunkSize;
-        const end    = Math.min(start + chunkSize, opts.file.size);
+        const start  = i * effectiveChunkSize;
+        const end    = Math.min(start + effectiveChunkSize, opts.file.size);
         const chunk  = opts.file.slice(start, end);
         const buffer = await chunk.arrayBuffer();
         await uploadApi.chunk(uploadId, i, buffer);
-        const progress = Math.round(((i + 1) / totalChunks) * 85);
+        const progress = Math.round(((i + 1) / effectiveTotalChunks) * 85);
         setState(s => ({ ...s, progress }));
         opts.onProgress?.(progress);
       }
@@ -65,7 +62,7 @@ export function useUpload() {
       // 3. Upload poster (optional)
       if (opts.poster) {
         setState(s => ({ ...s, phase: 'poster', progress: 87 }));
-        const buf = await opts.poster.arrayBuffer();
+        const buf  = await opts.poster.arrayBuffer();
         const pExt = '.' + (opts.poster.name.split('.').pop() || 'jpg');
         await uploadApi.poster(uploadId, buf, pExt);
       }
@@ -76,13 +73,11 @@ export function useUpload() {
       const { videoId } = completeRes.data;
 
       setState({ uploading: false, progress: 100, phase: 'done', error: null, uploadId, videoId });
-      toast.success('Video uploaded successfully!');
       return videoId as string;
 
     } catch (err: any) {
       const msg = err.response?.data?.message || err.message || 'Upload failed';
       setState(s => ({ ...s, uploading: false, phase: 'error', error: msg }));
-      toast.error(msg);
       return null;
     }
   }, []);

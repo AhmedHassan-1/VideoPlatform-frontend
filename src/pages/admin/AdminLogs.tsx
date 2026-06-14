@@ -1,105 +1,185 @@
-// src/pages/admin/AdminLogs.tsx
-import { useState, useEffect, useRef } from 'react';
-import { Wifi, WifiOff, Trash2 } from 'lucide-react';
+// src/pages/admin/AdminLogs.tsx — Updated: static log viewer (live SSE removed)
+import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { adminApi } from '../../services/api';
 
-function colorLine(line: string) {
-  if (/ERROR|error|✗|failed/i.test(line)) return '#ff4444';
-  if (/WARN|warn/i.test(line))             return '#ffb830';
-  if (/✓|done|ready|success/i.test(line)) return '#2dffb4';
-  if (/▶|start|process|encod/i.test(line))return '#5d4fff';
-  return '#a0a0b8';
+declare const Swal: any;
+
+function colorLine(line: string): string {
+  if (/\b(ERROR|FATAL|✗|failed|exception|traceback)\b/i.test(line)) return 'var(--accent-err)';
+  if (/\b(WARN|WARNING)\b/i.test(line))                               return 'var(--accent-warn)';
+  if (/\b(✓|done|ready|success|complete)\b/i.test(line))             return 'var(--accent-3)';
+  if (/\b(start|process|encod|submit|queue)\b/i.test(line))          return '#8b85ff';
+  if (/\b(DEBUG|debug)\b/.test(line))                                 return 'var(--text-muted)';
+  return 'var(--text-dim)';
 }
 
+type LogMode = 'app' | 'encode';
+
 export default function AdminLogs() {
-  const [logType, setLogType] = useState<'app'|'encode'|'errors'>('app');
-  const [jobId, setJobId]     = useState('');
-  const [lines, setLines]     = useState<string[]>([]);
-  const [connected, setCon]   = useState(false);
-  const [autoScroll, setAuto] = useState(true);
-  const esRef   = useRef<EventSource|null>(null);
-  const logRef  = useRef<HTMLDivElement>(null);
-  const token   = localStorage.getItem('token') || '';
+  const [mode,   setMode]   = useState<LogMode>('app');
+  const [jobId,  setJobId]  = useState('');
+  const [lines,  setLines]  = useState(500);
+  const [target, setTarget] = useState<{ mode: LogMode; jobId: string; lines: number } | null>(null);
 
-  function connect() {
-    if (esRef.current) { esRef.current.close(); esRef.current = null; }
-    setLines([]);
-    let url = `/admin/logs/stream?type=${logType}&token=${encodeURIComponent(token)}`;
-    if (jobId.trim() && logType !== 'app') url += `&jobId=${encodeURIComponent(jobId.trim())}`;
-    const es = new EventSource(url);
-    esRef.current = es;
-    es.onopen    = () => setCon(true);
-    es.onerror   = () => { setCon(false); };
-    es.onmessage = e => {
-      try { const l = JSON.parse(e.data); setLines(prev => [...prev.slice(-2000), l]); }
-      catch { setLines(prev => [...prev.slice(-2000), e.data]); }
-    };
+  // Only fetch when user clicks "Load"
+  const { data, isFetching, isError, error, refetch } = useQuery({
+    queryKey: ['admin', 'logs', target],
+    queryFn: async () => {
+      if (!target) return { lines: [] };
+      if (target.mode === 'encode') {
+        if (!target.jobId.trim()) return { lines: [] };
+        const r = await adminApi.encodeLog(target.jobId.trim(), target.lines);
+        return r.data;
+      }
+      const r = await adminApi.appLog(target.lines);
+      return r.data;
+    },
+    enabled: target !== null,
+    retry: false,
+    refetchOnWindowFocus: false,
+  });
+
+  const logLines: string[] = data?.lines ?? [];
+
+  function loadLog() {
+    setTarget({ mode, jobId, lines });
   }
 
-  function disconnect() {
-    esRef.current?.close();
-    esRef.current = null;
-    setCon(false);
+  function copyToClipboard() {
+    navigator.clipboard.writeText(logLines.join('\n')).then(() => {
+      Swal.mixin({ toast: true, position: 'top-end', showConfirmButton: false, timer: 1500 })
+        .fire({ icon: 'success', title: 'Copied to clipboard' });
+    });
   }
 
-  useEffect(() => { return () => disconnect(); }, []);
-
-  useEffect(() => {
-    if (autoScroll && logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
-  }, [lines, autoScroll]);
+  function downloadLog() {
+    const blob = new Blob([logLines.join('\n')], { type: 'text/plain' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href = url;
+    a.download = `${mode}${jobId ? '-' + jobId.slice(0, 8) : ''}-${Date.now()}.log`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
 
   return (
-    <div style={{ display:'flex', flexDirection:'column', height:'calc(100vh - 96px)' }}>
-      <div style={{ marginBottom:16 }}>
-        <h1 style={{ fontSize:22, fontWeight:800, marginBottom:4 }}>Logs</h1>
-        <p style={{ color:'#6b6b80', fontSize:13 }}>Real-time server log viewer</p>
+    <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 80px)', gap: 12 }}>
+
+      {/* Header */}
+      <div className="animate-fadeInUp">
+        <h1 style={{ fontSize: 22, fontWeight: 800, marginBottom: 3 }}>Server Logs</h1>
+        <p style={{ color: 'var(--text-muted)', fontSize: 13 }}>View recent log entries from the server</p>
       </div>
 
       {/* Controls */}
-      <div style={{ display:'flex', gap:8, marginBottom:12, flexWrap:'wrap', alignItems:'center' }}>
-        <select value={logType} onChange={e => setLogType(e.target.value as any)}
-          style={{ background:'#16161f', border:'1px solid #22222e', borderRadius:6, color:'#e8e8f0', padding:'7px 10px', fontSize:12, outline:'none', minWidth:160 }}>
-          <option value="app">Application Log</option>
-          <option value="encode">Encode Log</option>
-          <option value="errors">Errors Log</option>
-        </select>
-        {logType !== 'app' && (
-          <input value={jobId} onChange={e => setJobId(e.target.value)}
-            placeholder="Job ID (UUID)"
-            style={{ flex:1, maxWidth:340, background:'#16161f', border:'1px solid #22222e', borderRadius:6, color:'#e8e8f0', padding:'7px 10px', fontSize:12, outline:'none', fontFamily:'monospace' }}
-          />
-        )}
-        <button onClick={connected ? disconnect : connect}
-          style={{ display:'flex', alignItems:'center', gap:6, background: connected?'rgba(255,68,68,.1)':'rgba(45,255,180,.1)', border:`1px solid ${connected?'rgba(255,68,68,.3)':'rgba(45,255,180,.3)'}`, borderRadius:6, color:connected?'#ff4444':'#2dffb4', padding:'7px 14px', fontSize:12, fontWeight:600, cursor:'pointer' }}>
-          {connected ? <><WifiOff size={12} /> Disconnect</> : <><Wifi size={12} /> Connect</>}
-        </button>
-        <label style={{ display:'flex', alignItems:'center', gap:6, fontSize:12, color:'#6b6b80', cursor:'pointer' }}>
-          <input type="checkbox" checked={autoScroll} onChange={e => setAuto(e.target.checked)} />
-          Auto-scroll
-        </label>
-        <button onClick={() => setLines([])} style={{ display:'flex', alignItems:'center', gap:4, background:'none', border:'1px solid #22222e', borderRadius:6, color:'#6b6b80', padding:'7px 10px', fontSize:12, cursor:'pointer' }}>
-          <Trash2 size={12} /> Clear
-        </button>
+      <div className="s-card animate-fadeInUp delay-1" style={{ padding: '12px 16px', display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
 
-        <div style={{ display:'flex', alignItems:'center', gap:6, marginLeft:'auto', fontSize:11, fontFamily:'monospace', color: connected?'#2dffb4':'#6b6b80' }}>
-          <span style={{ width:7, height:7, borderRadius:'50%', background: connected?'#2dffb4':'#6b6b80', display:'inline-block' }} />
-          {connected ? 'Connected' : 'Disconnected'}
-        </div>
-      </div>
+        {/* Mode */}
+        {(['app', 'encode'] as LogMode[]).map(m => (
+          <button key={m} onClick={() => setMode(m)} className="s-btn s-btn-sm"
+            style={{
+              background: mode === m ? 'var(--accent)' : 'var(--bg-elevated)',
+              color:      mode === m ? '#fff' : 'var(--text-muted)',
+              border:     mode === m ? 'none' : '1px solid var(--border)',
+            }}>
+            <i className={`bi bi-${m === 'app' ? 'journal-text' : 'film'}`}></i>
+            {m === 'app' ? ' App Log' : ' Encode Log'}
+          </button>
+        ))}
 
-      {/* Log viewer */}
-      <div ref={logRef} style={{ flex:1, background:'#0a0a0f', border:'1px solid #22222e', borderRadius:8, padding:12, overflow:'auto', fontFamily:'JetBrains Mono,monospace', fontSize:11, lineHeight:1.7 }}>
-        {lines.length === 0 && (
-          <div style={{ color:'#3a3a4a', textAlign:'center', padding:40 }}>
-            {connected ? 'Waiting for log output…' : 'Click Connect to start streaming logs'}
+        {/* Job ID (encode mode) */}
+        {mode === 'encode' && (
+          <div style={{ position: 'relative', flex: '1 1 220px', maxWidth: 320 }}>
+            <i className="bi bi-hash" style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', fontSize: 13 }}></i>
+            <input
+              className="s-input"
+              style={{ paddingLeft: 28, fontFamily: 'JetBrains Mono,monospace', fontSize: 12 }}
+              value={jobId}
+              onChange={e => setJobId(e.target.value)}
+              placeholder="Job ID (UUID)"
+            />
           </div>
         )}
-        {lines.map((line, i) => (
-          <div key={i} style={{ color: colorLine(line), whiteSpace:'pre-wrap', wordBreak:'break-all' }}>{line}</div>
+
+        {/* Lines count - no spinners */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Last</span>
+          <input
+            type="number"
+            className="s-input mono"
+            style={{
+              width: 80, textAlign: 'center', padding: '6px 8px', fontSize: 13,
+              /* Remove spinners */
+              MozAppearance: 'textfield',
+            } as React.CSSProperties}
+            min={50} max={5000} step={50}
+            value={lines}
+            onChange={e => setLines(Math.max(50, Math.min(5000, parseInt(e.target.value) || 500)))}
+          />
+          <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>lines</span>
+        </div>
+
+        <button onClick={loadLog} disabled={isFetching || (mode === 'encode' && !jobId.trim())}
+          className="s-btn s-btn-primary s-btn-sm">
+          {isFetching
+            ? <><span style={{ display: 'inline-block', width: 12, height: 12, border: '2px solid rgba(255,255,255,.3)', borderTopColor: '#fff', borderRadius: '50%', animation: 'spin .7s linear infinite' }}></span> Loading…</>
+            : <><i className="bi bi-arrow-clockwise"></i> Load</>}
+        </button>
+
+        <div style={{ flex: 1 }} />
+
+        <button onClick={copyToClipboard} disabled={logLines.length === 0}
+          className="s-btn s-btn-ghost s-btn-sm" title="Copy all">
+          <i className="bi bi-clipboard"></i>
+        </button>
+
+        <button onClick={downloadLog} disabled={logLines.length === 0}
+          className="s-btn s-btn-ghost s-btn-sm" title="Download log">
+          <i className="bi bi-download"></i>
+        </button>
+      </div>
+
+      {/* Error */}
+      {isError && (
+        <div style={{ padding: '10px 16px', background: 'rgba(255,71,87,.08)', border: '1px solid rgba(255,71,87,.25)', borderRadius: 8, fontSize: 13, color: 'var(--accent-err)' }}>
+          <i className="bi bi-exclamation-triangle-fill" style={{ marginRight: 8 }}></i>
+          {(error as any)?.response?.data?.message || (error as any)?.message || 'Failed to load log'}
+        </div>
+      )}
+
+      {/* Log terminal */}
+      <div style={{
+        flex: 1, background: '#060610',
+        border: '1px solid var(--border)', borderRadius: 10,
+        padding: '14px 16px', overflow: 'auto',
+        fontFamily: 'JetBrains Mono, monospace', fontSize: 11.5, lineHeight: 1.75,
+      }}>
+        {logLines.length === 0 ? (
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--text-muted)', gap: 10 }}>
+            {isFetching ? (
+              <><span style={{ display: 'inline-block', width: 20, height: 20, border: '2px solid var(--border)', borderTopColor: 'var(--accent)', borderRadius: '50%', animation: 'spin 1s linear infinite' }}></span>
+                <span style={{ fontSize: 13 }}>Loading…</span></>
+            ) : (
+              <><i className="bi bi-terminal" style={{ fontSize: 36, opacity: .2 }}></i>
+                <span style={{ fontSize: 13 }}>Select a log type and click <strong style={{ color: 'var(--accent-3)' }}>Load</strong></span>
+                {mode === 'encode' && <span style={{ fontSize: 12 }}>Enter a Job ID to view encode logs</span>}</>
+            )}
+          </div>
+        ) : logLines.map((line, i) => (
+          <div key={i} style={{ color: colorLine(line), whiteSpace: 'pre-wrap', wordBreak: 'break-all', padding: '1px 0' }}>
+            <span style={{ color: 'var(--text-muted)', userSelect: 'none', marginRight: 12, fontSize: 10 }}>
+              {String(i + 1).padStart(4, '0')}
+            </span>
+            {line}
+          </div>
         ))}
       </div>
 
-      <div style={{ fontSize:11, color:'#3a3a4a', fontFamily:'monospace', marginTop:6, textAlign:'right' }}>
-        {lines.length} lines (max 2000)
+      {/* Footer */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--text-muted)', fontFamily: 'JetBrains Mono,monospace', padding: '0 2px' }}>
+        <span>{logLines.length > 0 && <span style={{ color: 'var(--text-dim)' }}>{logLines.length} lines</span>}</span>
+        <span>{mode}{jobId ? ` · ${jobId.slice(0, 8)}…` : ''}</span>
       </div>
     </div>
   );

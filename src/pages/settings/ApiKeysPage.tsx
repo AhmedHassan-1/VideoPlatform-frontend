@@ -1,19 +1,88 @@
-// src/pages/settings/ApiKeysPage.tsx
+// src/pages/settings/ApiKeysPage.tsx — Improved token UI with copy/show/hide
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Plus, Trash2, Copy, Check, Key, AlertTriangle } from 'lucide-react';
+import { Plus, Trash2, Copy, Check, Key, Eye, EyeOff, RefreshCw, Shield } from 'lucide-react';
 import { apiKeysApi } from '../../services/api';
-import toast from 'react-hot-toast';
 
-const EVENTS = ['video.ready','video.error','video.queued','video.progress'];
+declare const Swal: any;
+
+function CopyBtn({ text, label = 'Copy', size = 14 }: { text: string; label?: string; size?: number }) {
+  const [copied, setCopied] = useState(false);
+  function doCopy() {
+    navigator.clipboard.writeText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }
+  return (
+    <button onClick={doCopy} title="Copy to clipboard"
+      style={{
+        display: 'flex', alignItems: 'center', gap: 5,
+        background: copied ? 'rgba(45,255,180,.1)' : 'rgba(108,99,255,.08)',
+        border: `1px solid ${copied ? 'rgba(45,255,180,.35)' : 'rgba(108,99,255,.25)'}`,
+        borderRadius: 7, padding: '6px 12px',
+        color: copied ? '#2dffb4' : 'var(--accent)',
+        fontSize: 12, fontWeight: 700, cursor: 'pointer',
+        transition: 'all .2s',
+      }}>
+      {copied ? <Check size={size - 2} /> : <Copy size={size - 2} />}
+      {copied ? 'Copied!' : label}
+    </button>
+  );
+}
+
+function TokenReveal({ token }: { token: string }) {
+  const [show, setShow] = useState(false);
+  return (
+    <div style={{ background: 'rgba(45,255,180,.04)', border: '1px solid rgba(45,255,180,.2)', borderRadius: 10, overflow: 'hidden', marginBottom: 20 }}>
+      {/* Header */}
+      <div style={{ padding: '12px 16px', borderBottom: '1px solid rgba(45,255,180,.15)', display: 'flex', alignItems: 'center', gap: 8 }}>
+        <Shield size={14} color="#2dffb4" />
+        <span style={{ fontSize: 11, fontWeight: 700, color: '#2dffb4', textTransform: 'uppercase', letterSpacing: 1.5 }}>New Key Created</span>
+        <div style={{ flex: 1 }} />
+        <span style={{ fontSize: 10, color: 'rgba(255,255,255,.35)', fontFamily: 'JetBrains Mono,monospace' }}>Save this — shown once only</span>
+      </div>
+
+      {/* Token value */}
+      <div style={{ padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 10 }}>
+        <code style={{
+          flex: 1, fontFamily: 'JetBrains Mono,monospace', fontSize: 12, lineHeight: 1.6,
+          wordBreak: 'break-all', color: show ? '#2dffb4' : 'transparent',
+          background: show ? 'transparent' : 'rgba(45,255,180,.08)',
+          borderRadius: show ? 0 : 6, padding: show ? 0 : '2px 6px',
+          userSelect: show ? 'text' : 'none', transition: 'all .2s',
+        }}>
+          {show ? token : '•'.repeat(Math.min(token.length, 48))}
+        </code>
+        <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+          <button onClick={() => setShow(s => !s)} title={show ? 'Hide' : 'Reveal'}
+            style={{ display: 'flex', alignItems: 'center', gap: 5, background: 'rgba(255,255,255,.06)', border: '1px solid rgba(255,255,255,.12)', borderRadius: 7, padding: '6px 10px', color: 'var(--text-muted)', cursor: 'pointer', fontSize: 12 }}>
+            {show ? <EyeOff size={12} /> : <Eye size={12} />}
+            {show ? 'Hide' : 'Reveal'}
+          </button>
+          <CopyBtn text={token} label="Copy Key" />
+        </div>
+      </div>
+
+      {/* Warning */}
+      <div style={{ padding: '10px 16px', background: 'rgba(255,184,0,.06)', borderTop: '1px solid rgba(255,184,0,.15)', fontSize: 11, color: 'rgba(255,184,0,.8)', display: 'flex', alignItems: 'center', gap: 8 }}>
+        <span style={{ fontSize: 14 }}>⚠</span>
+        This key will not be shown again. Copy it to a secure location before closing this page.
+      </div>
+    </div>
+  );
+}
+
+const fmtDate = (d: string) => new Date(d).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+const isExpired = (d: string | null) => d ? new Date(d) < new Date() : false;
 
 export default function ApiKeysPage() {
   const qc = useQueryClient();
-  const [label, setLabel]       = useState('');
-  const [expires, setExpires]   = useState('');
-  const [newKey, setNewKey]     = useState<string|null>(null);
-  const [copied, setCopied]     = useState(false);
+  const [label, setLabel]     = useState('');
+  const [expires, setExpires] = useState('');
+  const [newKey, setNewKey]   = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
+  const [editId, setEditId]   = useState<string | null>(null);
+  const [editLabel, setEditLabel] = useState('');
 
   const { data: keys, isLoading } = useQuery({
     queryKey: ['api-keys'],
@@ -21,139 +90,231 @@ export default function ApiKeysPage() {
   });
 
   const createMut = useMutation({
-    mutationFn: () => apiKeysApi.create(label || 'API Key', expires || undefined),
+    mutationFn: () => apiKeysApi.create(label.trim() || 'API Key', expires || undefined),
     onSuccess: (res) => {
-      setNewKey(res.data.apiKey);
+      setNewKey(res.data.apiKey || res.data.key);
       setLabel(''); setExpires(''); setShowForm(false);
       qc.invalidateQueries({ queryKey: ['api-keys'] });
     },
-    onError: (e: any) => toast.error(e.response?.data?.message || 'Failed'),
+    onError: (e: any) => Swal.fire({ icon: 'error', title: 'Failed', text: e.response?.data?.message || 'Could not create key' }),
   });
 
   const revokeMut = useMutation({
     mutationFn: (id: string) => apiKeysApi.revoke(id),
-    onSuccess: () => { toast.success('Key revoked'); qc.invalidateQueries({ queryKey: ['api-keys'] }); },
-    onError: (e: any) => toast.error(e.response?.data?.message || 'Failed'),
+    onSuccess: () => {
+      Swal.fire({ icon: 'success', title: 'Key revoked', timer: 1500, showConfirmButton: false });
+      qc.invalidateQueries({ queryKey: ['api-keys'] });
+    },
   });
 
-  function copyKey() {
-    if (!newKey) return;
-    navigator.clipboard.writeText(newKey);
-    setCopied(true);
-    toast.success('Key copied!');
-    setTimeout(() => setCopied(false), 3000);
+  const updateLabelMut = useMutation({
+    mutationFn: ({ id, label }: { id: string; label: string }) => apiKeysApi.updateLabel(id, label),
+    onSuccess: () => { setEditId(null); qc.invalidateQueries({ queryKey: ['api-keys'] }); },
+  });
+
+  const revokeAllMut = useMutation({
+    mutationFn: () => apiKeysApi.revoke_all(),
+    onSuccess: () => {
+      Swal.fire({ icon: 'info', title: 'All keys revoked', timer: 1500, showConfirmButton: false });
+      qc.invalidateQueries({ queryKey: ['api-keys'] });
+    },
+  });
+
+  async function handleRevoke(id: string, lbl: string) {
+    const r = await Swal.fire({
+      title: `Revoke "${lbl}"?`,
+      text: 'Any integrations using this key will stop working immediately.',
+      icon: 'warning', showCancelButton: true,
+      confirmButtonText: 'Revoke', confirmButtonColor: '#ff4757',
+      cancelButtonText: 'Cancel', reverseButtons: true,
+    });
+    if (r.isConfirmed) revokeMut.mutate(id);
   }
 
-  const s = {
-    card:  { background:'#16161f', border:'1px solid #22222e', borderRadius:10, padding:24, marginBottom:16 } as React.CSSProperties,
-    label: { display:'block', fontSize:11, color:'#6b6b80', textTransform:'uppercase' as const, letterSpacing:1, marginBottom:4, fontFamily:'monospace' },
-    input: { width:'100%', background:'#111118', border:'1px solid #22222e', borderRadius:6, color:'#e8e8f0', padding:'8px 12px', fontSize:13, outline:'none' } as React.CSSProperties,
-    row:   { display:'flex', alignItems:'center', gap:12, padding:'12px 0', borderBottom:'1px solid #22222e' } as React.CSSProperties,
-  };
+  async function handleRevokeAll() {
+    const r = await Swal.fire({
+      title: 'Revoke ALL keys?',
+      html: '<div style="color:#ff6b6b">All your API keys will be deleted. This cannot be undone.</div>',
+      icon: 'error', showCancelButton: true,
+      confirmButtonText: 'Yes, revoke all', confirmButtonColor: '#ff4757',
+      cancelButtonText: 'Cancel', reverseButtons: true,
+    });
+    if (r.isConfirmed) revokeAllMut.mutate();
+  }
+
+  const keyList = (keys as any[]) || [];
+  const today = new Date().toISOString().split('T')[0];
 
   return (
-    <div style={{ maxWidth:680 }}>
-      <div style={{ marginBottom:24 }}>
-        <h1 style={{ fontSize:22, fontWeight:800, marginBottom:4 }}>API Keys</h1>
-        <p style={{ color:'#6b6b80', fontSize:13 }}>Create keys for programmatic access — each key is shown only once</p>
+    <div style={{ maxWidth: 680 }}>
+      <div style={{ marginBottom: 24 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
+          <Key size={18} color="var(--accent)" />
+          <h1 style={{ fontSize: 22, fontWeight: 800 }}>API Keys</h1>
+        </div>
+        <p style={{ color: 'var(--text-muted)', fontSize: 13, lineHeight: 1.6 }}>
+          Use API keys to authenticate programmatic access. Each key can be labelled and optionally set to expire.
+        </p>
       </div>
 
-      {/* New key revealed */}
-      {newKey && (
-        <div style={{ ...s.card, border:'1px solid rgba(45,255,180,.4)', background:'rgba(45,255,180,.05)' }}>
-          <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:12 }}>
-            <AlertTriangle size={16} color="#ffb830" />
-            <span style={{ fontWeight:600, color:'#ffb830' }}>Save this key now — it won't be shown again</span>
-          </div>
-          <div style={{ display:'flex', gap:8 }}>
-            <div style={{ flex:1, background:'#0a0a0f', border:'1px solid #22222e', borderRadius:6, padding:'10px 12px', fontFamily:'monospace', fontSize:12, color:'#2dffb4', wordBreak:'break-all' }}>
-              {newKey}
-            </div>
-            <button onClick={copyKey} style={{ background:'rgba(45,255,180,.15)', border:'1px solid rgba(45,255,180,.3)', borderRadius:6, color:'#2dffb4', padding:'8px 14px', cursor:'pointer', flexShrink:0 }}>
-              {copied ? <Check size={16} /> : <Copy size={16} />}
-            </button>
-          </div>
-          <button onClick={() => setNewKey(null)} style={{ marginTop:10, background:'none', border:'none', color:'#6b6b80', cursor:'pointer', fontSize:12, padding:0 }}>
-            I've saved this key ✓
-          </button>
-        </div>
-      )}
+      {/* Newly created key banner */}
+      {newKey && <TokenReveal token={newKey} />}
 
       {/* Create form */}
-      <div style={s.card}>
-        <div style={{ display:'flex', justifyContent:'space-between', marginBottom: showForm ? 16 : 0 }}>
-          <div style={{ fontSize:11, color:'#6b6b80', textTransform:'uppercase', letterSpacing:2, fontFamily:'monospace' }}>
-            {keys?.length || 0} / 10 keys
+      <div className="s-card animate-fadeInUp" style={{ padding: 20, marginBottom: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: showForm ? 16 : 0 }}>
+          <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-dim)' }}>
+            {keyList.length} key{keyList.length !== 1 ? 's' : ''}
+          </span>
+          <div style={{ display: 'flex', gap: 8 }}>
+            {keyList.length > 0 && (
+              <button onClick={handleRevokeAll} disabled={revokeAllMut.isPending}
+                className="s-btn s-btn-sm"
+                style={{ background: 'rgba(255,71,87,.08)', border: '1px solid rgba(255,71,87,.25)', color: 'var(--accent-err)', padding: '6px 12px', fontSize: 12 }}>
+                <Trash2 size={12} /> Revoke all
+              </button>
+            )}
+            <button onClick={() => { setShowForm(f => !f); setNewKey(null); }}
+              className="s-btn s-btn-primary s-btn-sm">
+              <Plus size={13} /> New Key
+            </button>
           </div>
-          <button onClick={() => setShowForm(s => !s)}
-            style={{ display:'flex', alignItems:'center', gap:6, background: showForm ? 'none' : '#5d4fff', border: showForm ? '1px solid #22222e' : 'none', borderRadius:6, color: showForm ? '#6b6b80' : '#fff', padding:'7px 14px', fontSize:12, fontWeight:600, cursor:'pointer' }}>
-            <Plus size={12} /> {showForm ? 'Cancel' : 'New Key'}
-          </button>
         </div>
 
         {showForm && (
-          <div style={{ display:'flex', gap:12, flexWrap:'wrap' }}>
-            <div style={{ flex:2, minWidth:180 }}>
-              <label style={s.label}>Label</label>
-              <input value={label} onChange={e => setLabel(e.target.value)} style={s.input} placeholder="e.g. Production Site" />
+          <div className="animate-fadeInUp" style={{ borderTop: '1px solid var(--border)', paddingTop: 16 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 14 }}>
+              <div>
+                <label className="s-label">Label</label>
+                <input className="s-input" value={label} onChange={e => setLabel(e.target.value)}
+                  placeholder="e.g. My Integration" maxLength={80} autoFocus />
+              </div>
+              <div>
+                <label className="s-label">Expires <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>(optional)</span></label>
+                <input className="s-input" type="date" value={expires} min={today}
+                  onChange={e => setExpires(e.target.value)} />
+              </div>
             </div>
-            <div style={{ flex:1, minWidth:160 }}>
-              <label style={s.label}>Expires (optional)</label>
-              <input type="date" value={expires} onChange={e => setExpires(e.target.value)} style={s.input} min={new Date().toISOString().split('T')[0]} />
-            </div>
-            <div style={{ alignSelf:'flex-end' }}>
-              <button onClick={() => createMut.mutate()} disabled={createMut.isPending}
-                style={{ background:'#5d4fff', border:'none', borderRadius:6, color:'#fff', padding:'9px 18px', fontSize:12, fontWeight:600, cursor:'pointer', opacity: createMut.isPending ? 0.6 : 1 }}>
-                {createMut.isPending ? 'Creating…' : 'Create Key'}
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button onClick={() => createMut.mutate()} disabled={createMut.isPending} className="s-btn s-btn-primary">
+                {createMut.isPending
+                  ? <><span style={{ display: 'inline-block', width: 12, height: 12, border: '2px solid rgba(255,255,255,.3)', borderTopColor: '#fff', borderRadius: '50%', animation: 'spin .7s linear infinite' }}></span> Creating…</>
+                  : <><Plus size={13} /> Create Key</>}
               </button>
+              <button onClick={() => { setShowForm(false); setLabel(''); setExpires(''); }}
+                className="s-btn s-btn-ghost">Cancel</button>
             </div>
           </div>
         )}
       </div>
 
       {/* Keys list */}
-      <div style={s.card}>
-        {isLoading ? <div style={{ color:'#6b6b80', textAlign:'center', padding:16 }}>Loading…</div> :
-          keys?.length === 0 ? <div style={{ color:'#6b6b80', textAlign:'center', padding:20, fontSize:13 }}>No API keys yet</div> :
-          keys?.map((k: any) => {
-            const expired = k.expiresAt && new Date(k.expiresAt) < new Date();
+      {isLoading ? (
+        <div className="s-card" style={{ padding: 24 }}>
+          {[1, 2, 3].map(i => <div key={i} className="skeleton" style={{ height: 56, marginBottom: 8 }} />)}
+        </div>
+      ) : keyList.length === 0 ? (
+        <div className="s-card" style={{ padding: '48px 24px', textAlign: 'center' }}>
+          <i className="bi bi-key" style={{ fontSize: 40, display: 'block', marginBottom: 14, opacity: .25 }}></i>
+          <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-dim)', marginBottom: 6 }}>No API keys</div>
+          <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>Create a key to start integrating.</div>
+        </div>
+      ) : (
+        <div className="s-card animate-fadeInUp delay-1" style={{ overflow: 'hidden' }}>
+          {keyList.map((k: any, i: number) => {
+            const expired = isExpired(k.expiresAt);
+            const expiringSoon = k.expiresAt && !expired
+              ? (new Date(k.expiresAt).getTime() - Date.now()) < 7 * 24 * 3600 * 1000
+              : false;
+
             return (
-              <div key={k.id} style={s.row}>
-                <div style={{ width:36, height:36, borderRadius:8, background: k.isActive && !expired ? 'rgba(93,79,255,.15)' : 'rgba(255,68,68,.1)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
-                  <Key size={16} color={k.isActive && !expired ? '#5d4fff' : '#ff4444'} />
+              <div key={k.id}
+                className={`animate-fadeInUp delay-${Math.min(i + 1, 5)}`}
+                style={{
+                  padding: '14px 18px',
+                  borderBottom: i < keyList.length - 1 ? '1px solid var(--border)' : 'none',
+                  display: 'flex', alignItems: 'center', gap: 14,
+                  opacity: expired ? .55 : 1,
+                  transition: 'background .15s',
+                }}>
+
+                {/* Icon */}
+                <div style={{
+                  width: 36, height: 36, borderRadius: 9, flexShrink: 0,
+                  background: expired ? 'rgba(255,71,87,.1)' : 'rgba(108,99,255,.1)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}>
+                  <Key size={14} color={expired ? 'var(--accent-err)' : 'var(--accent)'} />
                 </div>
-                <div style={{ flex:1 }}>
-                  <div style={{ fontWeight:600, fontSize:13 }}>{k.label}</div>
-                  <div style={{ fontSize:11, fontFamily:'monospace', color:'#6b6b80', marginTop:2 }}>
-                    {k.prefix}
-                    {k.lastUsed && ` · Last used ${new Date(k.lastUsed).toLocaleDateString()}`}
-                    {k.expiresAt && ` · ${expired ? '⚠ Expired' : `Expires ${new Date(k.expiresAt).toLocaleDateString()}`}`}
-                    {!k.isActive && ' · Revoked'}
+
+                {/* Info */}
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  {editId === k.id ? (
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <input className="s-input" style={{ flex: 1, padding: '5px 10px', fontSize: 12 }}
+                        value={editLabel} onChange={e => setEditLabel(e.target.value)}
+                        onKeyDown={e => { if (e.key === 'Enter') updateLabelMut.mutate({ id: k.id, label: editLabel }); if (e.key === 'Escape') setEditId(null); }}
+                        autoFocus />
+                      <button onClick={() => updateLabelMut.mutate({ id: k.id, label: editLabel })}
+                        className="s-btn s-btn-primary s-btn-sm" style={{ padding: '4px 10px' }}>
+                        <Check size={12} />
+                      </button>
+                      <button onClick={() => setEditId(null)} className="s-btn s-btn-ghost s-btn-sm" style={{ padding: '4px 10px' }}>✕</button>
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 3 }}>
+                      <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>{k.label}</span>
+                      {expired && <span className="s-badge badge-error">Expired</span>}
+                      {expiringSoon && !expired && <span className="s-badge badge-warning">Expiring soon</span>}
+                      <button onClick={() => { setEditId(k.id); setEditLabel(k.label); }}
+                        style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: '0 4px', opacity: .6, fontSize: 11 }}>
+                        ✎
+                      </button>
+                    </div>
+                  )}
+
+                  <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: 11, fontFamily: 'JetBrains Mono,monospace', color: 'var(--text-muted)' }}>
+                      <span style={{ opacity: .6 }}>PREFIX </span>
+                      <span style={{ color: 'var(--accent)', background: 'rgba(108,99,255,.1)', padding: '1px 5px', borderRadius: 4 }}>
+                        {k.keyPrefix || k.prefix || (k.id || '').slice(0, 8)}…
+                      </span>
+                    </span>
+                    <span style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: 'JetBrains Mono,monospace' }}>
+                      Created {fmtDate(k.createdAt)}
+                    </span>
+                    {k.expiresAt && (
+                      <span style={{ fontSize: 11, color: expiringSoon ? 'var(--accent-warn)' : expired ? 'var(--accent-err)' : 'var(--text-muted)', fontFamily: 'JetBrains Mono,monospace' }}>
+                        {expired ? 'Expired' : 'Expires'} {fmtDate(k.expiresAt)}
+                      </span>
+                    )}
+                    {k.lastUsedAt && (
+                      <span style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: 'JetBrains Mono,monospace' }}>
+                        Last used {fmtDate(k.lastUsedAt)}
+                      </span>
+                    )}
                   </div>
                 </div>
-                {k.isActive && !expired && (
-                  <button onClick={() => { if(confirm(`Revoke "${k.label}"?`)) revokeMut.mutate(k.id); }}
-                    style={{ background:'none', border:'1px solid rgba(255,68,68,.3)', borderRadius:6, color:'#ff4444', padding:'5px 10px', cursor:'pointer', fontSize:11 }}>
-                    Revoke
-                  </button>
-                )}
+
+                {/* Actions */}
+                <button onClick={() => handleRevoke(k.id, k.label)}
+                  disabled={revokeMut.isPending}
+                  title="Revoke key"
+                  style={{ background: 'none', border: '1px solid rgba(255,71,87,.25)', borderRadius: 7, color: 'var(--accent-err)', cursor: 'pointer', padding: '6px 10px', display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, flexShrink: 0, transition: 'all .15s' }}
+                  onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,71,87,.1)')}
+                  onMouseLeave={e => (e.currentTarget.style.background = 'none')}>
+                  <Trash2 size={12} /> Revoke
+                </button>
               </div>
             );
-          })
-        }
-      </div>
+          })}
+        </div>
+      )}
 
-      {/* Usage example */}
-      <div style={{ ...s.card, background:'#0e0e16' }}>
-        <div style={{ fontSize:11, color:'#6b6b80', textTransform:'uppercase', letterSpacing:2, fontFamily:'monospace', marginBottom:10 }}>Usage</div>
-        <pre style={{ fontSize:11, fontFamily:'monospace', color:'#a0a0b8', overflow:'auto', margin:0 }}>{`POST /api/embed
-Authorization: Bearer sk_your_api_key_here
-Content-Type: application/json
-
-{
-  "videoId": "your-video-uuid",
-  "watermark": "viewer@example.com"
-}`}</pre>
+      {/* Usage note */}
+      <div style={{ marginTop: 16, padding: '12px 16px', background: 'rgba(108,99,255,.06)', border: '1px solid rgba(108,99,255,.2)', borderRadius: 10, fontSize: 12, color: 'var(--text-dim)', lineHeight: 1.7 }}>
+        <i className="bi bi-info-circle" style={{ color: 'var(--accent)', marginRight: 8 }}></i>
+        API keys are used in <code style={{ fontFamily: 'JetBrains Mono,monospace', color: 'var(--accent)', background: 'rgba(108,99,255,.1)', padding: '1px 5px', borderRadius: 4 }}>X-Api-Key</code> header or as a Bearer token to access protected endpoints.
       </div>
     </div>
   );

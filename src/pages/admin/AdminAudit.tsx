@@ -1,7 +1,7 @@
 // src/pages/admin/AdminAudit.tsx
 import React, { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { adminExtApi } from '../../services/api';
+import { adminApi } from '../../services/api';
 
 const LEVEL_COLOR: Record<string, string> = { info:'#2dffb4', warn:'#ffb830', error:'#ff4444', debug:'#6b6b80' };
 
@@ -13,7 +13,7 @@ export default function AdminAudit() {
 
   const { data, isLoading } = useQuery({
     queryKey: ['admin','audit', page, action, level, userId],
-    queryFn:  () => adminExtApi.auditLogs({ page, limit:50, action:action||undefined, level:level||undefined, userId:userId||undefined }).then(r => r.data),
+    queryFn:  () => adminApi.auditLogs({ page, limit:50, action:action||undefined, level:level||undefined, userId:userId||undefined }).then(r => r.data),
   });
 
   const th: React.CSSProperties = { padding:'8px 12px', fontSize:10, textTransform:'uppercase', letterSpacing:1.5, color:'#6b6b80', fontFamily:'monospace', borderBottom:'1px solid #22222e', background:'#111118', textAlign:'left' as const };

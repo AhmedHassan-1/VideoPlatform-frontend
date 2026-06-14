@@ -1,27 +1,30 @@
 import React from 'react';
-// VideoDetail.tsx — Fixed: React Query v5 refetchInterval, proper types
+// VideoDetail.tsx — Fixed: uses CSS variables, s-card/s-btn classes, Swal for confirm, no hardcoded hex
 
 import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, Copy, Trash2, XCircle, Edit2, Check, X, RotateCcw } from 'lucide-react';
-import { videosApi, embedApi, usersApi, videoExtApi } from '../../services/api';
+import { videosApi, embedApi, usersApi, videosExtApi } from '../../services/api';
 import toast from 'react-hot-toast';
 
+declare const Swal: any;
+
 const STATUS_COLOR: Record<string, string> = {
-  ready:'#2dffb4', processing:'#5d4fff', queued:'#ffb830',
-  error:'#ff4444', uploading:'#6b6b80', cancelled:'#6b6b80',
+  ready:'#00e5b0', processing:'#6c63ff', queued:'#ffb800',
+  error:'#ff4757', uploading:'#5a5a80', cancelled:'#5a5a80',
 };
 
-const fmt = (b: number) => b>=1e9?(b/1e9).toFixed(1)+'GB':b>=1e6?(b/1e6).toFixed(0)+'MB':b+'B';
+const fmt    = (b: number) => b>=1e9?(b/1e9).toFixed(1)+'GB':b>=1e6?(b/1e6).toFixed(0)+'MB':b+'B';
 const fmtDur = (s: number) => { if(!s) return '—'; return `${Math.floor(s/60)}:${Math.floor(s%60).toString().padStart(2,'0')}`; };
 
 function CopyBtn({ text, label }: { text: string; label?: string }) {
   const [copied, setCopied] = useState(false);
   return (
     <button onClick={() => { navigator.clipboard.writeText(text); setCopied(true); toast.success('Copied!'); setTimeout(() => setCopied(false), 2000); }}
-      style={{ display:'flex', alignItems:'center', gap:4, background:'none', border:'1px solid #22222e', borderRadius:4, color:'#6b6b80', padding:'4px 8px', fontSize:11, cursor:'pointer' }}>
-      {copied ? <Check size={10} color="#2dffb4" /> : <Copy size={10} />} {label||'Copy'}
+      className="s-btn s-btn-ghost s-btn-sm"
+      style={{ color: copied ? 'var(--accent-3)' : undefined, borderColor: copied ? 'rgba(0,229,176,.4)' : undefined }}>
+      {copied ? <Check size={11} /> : <Copy size={11} />} {label || 'Copy'}
     </button>
   );
 }
@@ -40,7 +43,6 @@ export default function VideoDetail() {
   const { data: video, isLoading } = useQuery({
     queryKey: ['video', id],
     queryFn: () => videosApi.get(id!).then(r => r.data),
-    // Polling only while video is still processing
     refetchInterval: (query) => {
       const status = query.state.data?.status;
       return status && ['processing','queued','uploaded'].includes(status) ? 5000 : false;
@@ -65,7 +67,7 @@ export default function VideoDetail() {
   });
 
   const retryMut = useMutation({
-    mutationFn: () => videoExtApi.retry(id!),
+    mutationFn: () => videosExtApi.retry(id!),
     onSuccess: () => { toast.success('Video requeued!'); qc.invalidateQueries({ queryKey: ['video', id] }); },
     onError: (e: any) => toast.error(e.response?.data?.message || 'Retry failed'),
   });
@@ -75,6 +77,19 @@ export default function VideoDetail() {
     onSuccess: () => { toast.success('Title updated'); setEditing(false); qc.invalidateQueries({ queryKey: ['video', id] }); },
     onError: (e: any) => toast.error(e.response?.data?.message || 'Failed'),
   });
+
+  async function handleDelete() {
+    const result = await Swal.fire({
+      title: 'Delete video?',
+      html: `<span style="color:var(--text-muted)">This will permanently delete <strong style="color:var(--text)">"${video?.title}"</strong> and all its files.</span>`,
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonText: '<i class="bi bi-trash3-fill me-1"></i> Yes, delete',
+      cancelButtonText: 'Cancel',
+      reverseButtons: true,
+    });
+    if (result.isConfirmed) deleteMut.mutate();
+  }
 
   async function generateEmbed() {
     if (!profile?.apiToken) { toast.error('No API token found — check Settings'); return; }
@@ -87,39 +102,52 @@ export default function VideoDetail() {
     } finally { setLoadingEmbed(false); }
   }
 
-  const c: Record<string, React.CSSProperties> = {
-    card:  { background:'#16161f', border:'1px solid #22222e', borderRadius:10, padding:20, marginBottom:16 },
-    label: { fontSize:11, color:'#6b6b80', textTransform:'uppercase', letterSpacing:1, marginBottom:6, display:'block', fontFamily:'monospace' },
-    mono:  { fontFamily:'monospace', fontSize:12, color:'#a0a0b8', wordBreak:'break-all' },
-  };
+  if (isLoading) return (
+    <div style={{ maxWidth:760 }}>
+      {[1,2,3].map(i => (
+        <div key={i} className="s-card animate-fadeInUp" style={{ padding:20, marginBottom:16 }}>
+          <div className="skeleton" style={{ height:16, width:'60%', marginBottom:12 }} />
+          <div className="skeleton" style={{ height:12, width:'40%' }} />
+        </div>
+      ))}
+    </div>
+  );
 
-  if (isLoading) return <div style={{ color:'#6b6b80', padding:40, textAlign:'center' }}>Loading…</div>;
-  if (!video)    return <div style={{ color:'#ff4444', padding:40, textAlign:'center' }}>Video not found</div>;
+  if (!video) return (
+    <div style={{ textAlign:'center', padding:'60px 0', color:'var(--accent-err)' }}>
+      <i className="bi bi-exclamation-triangle" style={{ fontSize:36, display:'block', marginBottom:12 }}></i>
+      <div style={{ fontSize:16, fontWeight:600 }}>Video not found</div>
+    </div>
+  );
 
   const hoursLeft = embedData ? Math.round((embedData.exp - Date.now()/1000) / 3600) : 0;
 
   return (
     <div style={{ maxWidth:760 }}>
       {/* Header */}
-      <div style={{ display:'flex', alignItems:'center', gap:12, marginBottom:24 }}>
-        <button onClick={() => nav('/videos')} style={{ background:'none', border:'1px solid #22222e', borderRadius:6, color:'#6b6b80', padding:'6px 10px', cursor:'pointer', display:'flex', alignItems:'center', gap:4, fontSize:12 }}>
+      <div className="animate-fadeInUp" style={{ display:'flex', alignItems:'center', gap:12, marginBottom:24 }}>
+        <button onClick={() => nav('/videos')} className="s-btn s-btn-ghost s-btn-sm">
           <ArrowLeft size={14} /> Back
         </button>
         <div style={{ flex:1 }}>
           {editing ? (
             <div style={{ display:'flex', gap:8, alignItems:'center' }}>
               <input value={newTitle} onChange={e => setNewTitle(e.target.value)}
-                style={{ background:'#111118', border:'1px solid #5d4fff', borderRadius:6, color:'#e8e8f0', padding:'6px 12px', fontSize:18, fontWeight:700, outline:'none', flex:1 }}
+                className="s-input"
+                style={{ fontSize:18, fontWeight:700, flex:1 }}
                 autoFocus
                 onKeyDown={e => { if (e.key === 'Enter') updateMut.mutate(newTitle); if (e.key === 'Escape') setEditing(false); }}
               />
-              <button onClick={() => updateMut.mutate(newTitle)} style={{ background:'#5d4fff', border:'none', borderRadius:6, color:'#fff', padding:'6px 10px', cursor:'pointer' }}><Check size={14} /></button>
-              <button onClick={() => setEditing(false)} style={{ background:'none', border:'1px solid #22222e', borderRadius:6, color:'#6b6b80', padding:'6px 10px', cursor:'pointer' }}><X size={14} /></button>
+              <button onClick={() => updateMut.mutate(newTitle)} className="s-btn s-btn-primary s-btn-sm"><Check size={14} /></button>
+              <button onClick={() => setEditing(false)} className="s-btn s-btn-ghost s-btn-sm"><X size={14} /></button>
             </div>
           ) : (
             <div style={{ display:'flex', alignItems:'center', gap:8 }}>
               <h1 style={{ fontSize:22, fontWeight:800, margin:0 }}>{video.title}</h1>
-              <button onClick={() => { setEditing(true); setNewTitle(video.title); }} style={{ background:'none', border:'none', color:'#6b6b80', cursor:'pointer', padding:4 }}>
+              <button onClick={() => { setEditing(true); setNewTitle(video.title); }}
+                style={{ background:'none', border:'none', color:'var(--text-muted)', cursor:'pointer', padding:4, borderRadius:6, transition:'color .15s' }}
+                onMouseEnter={e => (e.currentTarget.style.color='var(--text)')}
+                onMouseLeave={e => (e.currentTarget.style.color='var(--text-muted)')}>
                 <Edit2 size={14} />
               </button>
             </div>
@@ -127,103 +155,123 @@ export default function VideoDetail() {
         </div>
         <div style={{ display:'flex', gap:8 }}>
           {['queued','processing'].includes(video.status) && (
-            <button onClick={() => cancelMut.mutate()} style={{ display:'flex', alignItems:'center', gap:4, background:'rgba(255,184,48,.1)', border:'1px solid rgba(255,184,48,.3)', borderRadius:6, color:'#ffb830', padding:'7px 12px', cursor:'pointer', fontSize:12, fontWeight:600 }}>
+            <button onClick={() => cancelMut.mutate()} className="s-btn s-btn-sm"
+              style={{ background:'rgba(255,184,0,.1)', border:'1px solid rgba(255,184,0,.3)', color:'var(--accent-warn)' }}>
               <XCircle size={12} /> Cancel
             </button>
           )}
           {['error','uploaded','cancelled'].includes(video.status) && video.hasSourceFile && (
-            <button onClick={() => retryMut.mutate()} style={{ display:'flex', alignItems:'center', gap:4, background:'rgba(93,79,255,.1)', border:'1px solid rgba(93,79,255,.3)', borderRadius:6, color:'#5d4fff', padding:'7px 12px', cursor:'pointer', fontSize:12, fontWeight:600 }}>
+            <button onClick={() => retryMut.mutate()} className="s-btn s-btn-sm"
+              style={{ background:'rgba(108,99,255,.1)', border:'1px solid rgba(108,99,255,.3)', color:'var(--accent)' }}>
               <RotateCcw size={12} /> Retry
             </button>
           )}
-          <button onClick={() => { if (confirm(`Delete "${video.title}"?`)) deleteMut.mutate(); }}
-            style={{ display:'flex', alignItems:'center', gap:4, background:'rgba(255,68,68,.1)', border:'1px solid rgba(255,68,68,.3)', borderRadius:6, color:'#ff4444', padding:'7px 12px', cursor:'pointer', fontSize:12, fontWeight:600 }}>
+          <button onClick={handleDelete} className="s-btn s-btn-danger s-btn-sm">
             <Trash2 size={12} /> Delete
           </button>
         </div>
       </div>
 
-      {/* Info */}
-      <div style={{ display:'grid', gridTemplateColumns:'200px 1fr', gap:16, marginBottom:16 }}>
-        <div style={{ aspectRatio:'16/9', background:'#22222e', borderRadius:8, overflow:'hidden' }}>
+      {/* Info Grid */}
+      <div className="animate-fadeInUp delay-1" style={{ display:'grid', gridTemplateColumns:'200px 1fr', gap:16, marginBottom:16 }}>
+        <div style={{ aspectRatio:'16/9', background:'var(--bg-elevated)', borderRadius:10, overflow:'hidden', border:'1px solid var(--border)' }}>
           {video.posterUrl
             ? <img src={video.posterUrl} alt={video.title} style={{ width:'100%', height:'100%', objectFit:'cover' }} />
-            : <div style={{ width:'100%', height:'100%', display:'flex', alignItems:'center', justifyContent:'center', color:'#6b6b80', fontSize:12 }}>No poster</div>
+            : <div style={{ width:'100%', height:'100%', display:'flex', alignItems:'center', justifyContent:'center', color:'var(--text-muted)', flexDirection:'column', gap:6 }}>
+                <i className="bi bi-image" style={{ fontSize:22, opacity:.5 }}></i>
+                <span style={{ fontSize:11 }}>No poster</span>
+              </div>
           }
         </div>
-        <div style={c.card}>
-          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
+
+        <div className="s-card" style={{ padding:18 }}>
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:14 }}>
             {[
-              ['Status',         <span style={{ fontSize:12, fontFamily:'monospace', color:STATUS_COLOR[video.status]||'#6b6b80', background:`${STATUS_COLOR[video.status]||'#6b6b80'}20`, padding:'2px 8px', borderRadius:4 }}>{video.status}</span>],
-              ['Queue',          video.queuePosition != null ? `#${video.queuePosition}` : '—'],
-              ['File Size',      fmt(video.originalSizeBytes)],
-              ['Duration',       fmtDur(video.durationSec)],
-              ['Qualities',      video.qualities?.join(', ') || 'Auto'],
-              ['Segment / Rot',  `${video.segmentDuration}s / ${video.keyRotationInterval||'off'}`],
+              ['Status', (
+                <span key="s" className={`s-badge badge-${video.status}`}>{video.status}</span>
+              )],
+              ['Queue',     video.queuePosition != null ? `#${video.queuePosition}` : '—'],
+              ['File Size', fmt(video.originalSizeBytes)],
+              ['Duration',  fmtDur(video.durationSec)],
+              ['Qualities', video.qualities?.join(', ') || 'Auto'],
+              ['Segment',   `${video.segmentDuration ?? '—'}s`],
             ].map(([label, val]) => (
               <div key={String(label)}>
-                <span style={c.label}>{label}</span>
-                <span style={c.mono}>{val as any}</span>
+                <span style={{ fontSize:10, color:'var(--text-muted)', textTransform:'uppercase', letterSpacing:1, marginBottom:4, display:'block', fontWeight:700 }}>{label}</span>
+                <span style={{ fontFamily:'JetBrains Mono,monospace', fontSize:12, color:'var(--text-dim)' }}>{val as any}</span>
               </div>
             ))}
           </div>
+
           {video.status === 'processing' && (
-            <div style={{ marginTop:12 }}>
-              <div style={{ display:'flex', justifyContent:'space-between', fontSize:12, fontFamily:'monospace', marginBottom:4 }}>
-                <span style={{ color:'#6b6b80' }}>Encoding…</span>
-                <span style={{ color:'#5d4fff' }}>{video.progress}%</span>
+            <div style={{ marginTop:14 }}>
+              <div style={{ display:'flex', justifyContent:'space-between', fontSize:12, fontFamily:'JetBrains Mono,monospace', marginBottom:5 }}>
+                <span style={{ color:'var(--text-muted)' }}>Encoding…</span>
+                <span style={{ color:'var(--accent)', fontWeight:700 }}>{video.progress}%</span>
               </div>
-              <div style={{ height:6, background:'#22222e', borderRadius:3 }}>
-                <div style={{ height:'100%', width:`${video.progress}%`, background:'#5d4fff', borderRadius:3, transition:'width .5s' }} />
+              <div className="s-progress">
+                <div className="s-progress-bar" style={{ width:`${video.progress}%` }} />
               </div>
             </div>
           )}
+
           {video.status === 'error' && video.errorMessage && (
-            <div style={{ marginTop:12, padding:10, background:'rgba(255,68,68,.1)', borderRadius:6, color:'#ff4444', fontSize:12, fontFamily:'monospace' }}>
-              ✗ {video.errorMessage}
+            <div style={{ marginTop:14, padding:10, background:'rgba(255,71,87,.1)', borderRadius:8, border:'1px solid rgba(255,71,87,.2)', color:'var(--accent-err)', fontSize:12, fontFamily:'JetBrains Mono,monospace', display:'flex', gap:8, alignItems:'flex-start' }}>
+              <i className="bi bi-exclamation-triangle-fill" style={{ flexShrink:0, marginTop:1 }}></i>
+              {video.errorMessage}
             </div>
           )}
         </div>
       </div>
 
-      {/* Embed */}
+      {/* Embed Section */}
       {video.status === 'ready' && (
-        <div style={c.card}>
-          <div style={c.label}>Embed Video</div>
+        <div className="s-card animate-fadeInUp delay-2" style={{ padding:20, marginBottom:16 }}>
+          <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:16 }}>
+            <div className="icon-box" style={{ background:'rgba(0,229,176,.15)' }}>
+              <i className="bi bi-code-slash" style={{ color:'var(--accent-3)', fontSize:16 }}></i>
+            </div>
+            <div>
+              <div style={{ fontSize:14, fontWeight:700 }}>Embed Video</div>
+              <div style={{ fontSize:11, color:'var(--text-muted)' }}>Generate an embeddable player token</div>
+            </div>
+          </div>
+
           <div style={{ display:'flex', gap:8, marginBottom:16, flexWrap:'wrap' }}>
             <input value={watermark} onChange={e => setWatermark(e.target.value)}
+              className="s-input"
               placeholder="Watermark text (optional)"
-              style={{ flex:1, minWidth:200, background:'#111118', border:'1px solid #22222e', borderRadius:6, color:'#e8e8f0', padding:'8px 12px', fontSize:12, outline:'none' }}
+              style={{ flex:1, minWidth:200, fontSize:13 }}
             />
-            <button onClick={generateEmbed} disabled={loadingEmbed}
-              style={{ background:'#5d4fff', border:'none', borderRadius:6, color:'#fff', padding:'8px 16px', fontSize:12, fontWeight:600, cursor:'pointer', opacity:loadingEmbed?0.6:1 }}>
-              {loadingEmbed ? 'Generating…' : 'Generate Embed'}
+            <button onClick={generateEmbed} disabled={loadingEmbed} className="s-btn s-btn-primary" style={{ opacity:loadingEmbed?0.6:1 }}>
+              {loadingEmbed ? <><span style={{ display:'inline-block', width:14, height:14, border:'2px solid rgba(255,255,255,.3)', borderTopColor:'#fff', borderRadius:'50%', animation:'spin .7s linear infinite' }}></span> Generating…</> : <><i className="bi bi-lightning-fill"></i> Generate Embed</>}
             </button>
           </div>
 
           {embedData && (
             <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
-              <div style={{ padding:10, background:'rgba(255,184,48,.08)', border:'1px solid rgba(255,184,48,.2)', borderRadius:6, fontSize:12, color:'#ffb830' }}>
-                ⏱ Token expires in ~{hoursLeft}h — the player auto-refreshes it
+              <div style={{ padding:10, background:'rgba(255,184,0,.08)', border:'1px solid rgba(255,184,0,.2)', borderRadius:8, fontSize:12, color:'var(--accent-warn)', display:'flex', alignItems:'center', gap:8 }}>
+                <i className="bi bi-clock"></i>
+                Token expires in ~{hoursLeft}h — the player auto-refreshes it
               </div>
               {[
-                { label:'iframe URL',   value: embedData.iframeUrl },
-                { label:'Embed Token',  value: embedData.embedToken },
+                { label:'iframe URL',  value: embedData.iframeUrl },
+                { label:'Embed Token', value: embedData.embedToken },
               ].map(({ label, value }) => (
                 <div key={label}>
                   <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:6 }}>
-                    <span style={c.label}>{label}</span>
+                    <span style={{ fontSize:10, color:'var(--text-muted)', textTransform:'uppercase', letterSpacing:1, fontWeight:700 }}>{label}</span>
                     <CopyBtn text={value} />
                   </div>
-                  <div style={{ background:'#0a0a0f', borderRadius:6, padding:10, fontFamily:'monospace', fontSize:11, color:'#a0a0b8', wordBreak:'break-all' }}>{value}</div>
+                  <div style={{ background:'var(--bg-deep)', borderRadius:6, padding:10, fontFamily:'JetBrains Mono,monospace', fontSize:11, color:'var(--text-dim)', wordBreak:'break-all', border:'1px solid var(--border)' }}>{value}</div>
                 </div>
               ))}
               <div>
                 <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:6 }}>
-                  <span style={c.label}>HTML Code</span>
+                  <span style={{ fontSize:10, color:'var(--text-muted)', textTransform:'uppercase', letterSpacing:1, fontWeight:700 }}>HTML Code</span>
                   <CopyBtn text={`<iframe src="${embedData.iframeUrl}" allowfullscreen width="100%" height="500px"></iframe>`} />
                 </div>
-                <pre style={{ background:'#0a0a0f', borderRadius:6, padding:12, fontFamily:'monospace', fontSize:11, color:'#a0a0b8', overflow:'auto' }}>
+                <pre style={{ background:'var(--bg-deep)', borderRadius:8, padding:14, fontFamily:'JetBrains Mono,monospace', fontSize:11, color:'var(--text-dim)', overflow:'auto', border:'1px solid var(--border)', margin:0 }}>
 {`<iframe
   src="${embedData.iframeUrl}"
   allowfullscreen
@@ -250,12 +298,12 @@ export default function VideoDetail() {
 
       {/* Job ID */}
       {video.jobId && (
-        <div style={c.card}>
-          <span style={c.label}>Job ID</span>
-          <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-            <span style={c.mono}>{video.jobId}</span>
+        <div className="s-card animate-fadeInUp delay-3" style={{ padding:18 }}>
+          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+            <span style={{ fontSize:10, color:'var(--text-muted)', textTransform:'uppercase', letterSpacing:1, fontWeight:700 }}>Job ID</span>
             <CopyBtn text={video.jobId} />
           </div>
+          <div style={{ marginTop:8, fontFamily:'JetBrains Mono,monospace', fontSize:12, color:'var(--text-dim)', wordBreak:'break-all' }}>{video.jobId}</div>
         </div>
       )}
     </div>
