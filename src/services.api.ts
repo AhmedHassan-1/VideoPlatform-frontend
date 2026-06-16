@@ -57,7 +57,7 @@ export const videosApi = {
 
 // ── Upload ────────────────────────────────────────────────────────────────────
 export const uploadApi = {
-  init: (data: { filename: string; totalSize: number; title: string }) =>
+  init: (data: { filename: string; totalSize: number; title: string; qualities?: string[] | null }) =>
     api.post('/upload/init', data),
 
   chunk: (uploadId: string, index: number, data: ArrayBuffer) =>
@@ -102,8 +102,8 @@ export const adminApi = {
   deleteUser:      (id: string) => api.delete(`/admin/users/${id}`),
   disableUser:     (id: string) => api.patch(`/admin/users/${id}/disable`),
   enableUser:      (id: string) => api.patch(`/admin/users/${id}/enable`),
-  setAllowedQualities: (id: string, allowedQualities: string[] | null) =>
-    api.patch(`/admin/users/${id}/allowed-qualities`, { allowedQualities }),
+  setMaxQualities: (id: string, maxQualities: number | null) =>
+    api.patch(`/admin/users/${id}/max-qualities`, { maxQualities }),
   setBandwidth:    (id: string, bandwidthLimitBytes: number) =>
     api.patch(`/admin/users/${id}/bandwidth`, { bandwidthLimitBytes }),
   resetBandwidth:  (id: string) => api.post(`/admin/users/${id}/bandwidth/reset`),

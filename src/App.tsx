@@ -1,4 +1,4 @@
-// src/App.tsx — Updated: removed register, forgot-password, sessions, webhooks routes
+// src/App.tsx — Updated: added /profile route
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useAuthStore } from './stores/auth.store';
@@ -8,6 +8,7 @@ import VideosPage     from './pages/videos/VideosPage';
 import UploadPage     from './pages/videos/UploadPage';
 import VideoDetail    from './pages/videos/VideoDetail';
 import SettingsPage   from './pages/settings/SettingsPage';
+import ProfilePage    from './pages/settings/ProfilePage';
 import AdminLayout    from './pages/admin/AdminLayout';
 import AdminDashboard from './pages/admin/AdminDashboard';
 import AdminUsers     from './pages/admin/AdminUsers';
@@ -47,16 +48,16 @@ export default function App() {
       <BrowserRouter>
         <Routes>
           <Route path="/login" element={<LoginPage />} />
-          {/* No register / forgot-password — admin creates accounts */}
 
           <Route path="/" element={<RequireAuth><AuthenticatedWrapper><AppLayout /></AuthenticatedWrapper></RequireAuth>}>
             <Route index element={<Navigate to="/dashboard" replace />} />
-            <Route path="dashboard" element={<DashboardPage />} />
-            <Route path="videos" element={<VideosPage />} />
-            <Route path="videos/upload" element={<UploadPage />} />
-            <Route path="videos/:id" element={<VideoDetail />} />
-            <Route path="settings" element={<SettingsPage />} />
-            <Route path="settings/api-keys" element={<ApiKeysPage />} />
+            <Route path="dashboard"           element={<DashboardPage />} />
+            <Route path="videos"              element={<VideosPage />} />
+            <Route path="videos/upload"       element={<UploadPage />} />
+            <Route path="videos/:id"          element={<VideoDetail />} />
+            <Route path="profile"             element={<ProfilePage />} />
+            <Route path="settings"            element={<SettingsPage />} />
+            <Route path="settings/api-keys"   element={<ApiKeysPage />} />
           </Route>
 
           <Route path="/admin" element={<RequireAuth><RequireAdmin><AdminLayout /></RequireAdmin></RequireAuth>}>
@@ -69,6 +70,7 @@ export default function App() {
             <Route path="audit"  element={<AdminAudit />} />
           </Route>
 
+          {/* Catch-all → dashboard (not login, to avoid losing auth state) */}
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Routes>
       </BrowserRouter>
